@@ -5,7 +5,7 @@ const getAllUsers = async (req, res) => {
   try {
     // Get pagination parameters from query
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
+    const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
     // Count total users for pagination metadata
@@ -18,12 +18,18 @@ const getAllUsers = async (req, res) => {
       .limit(limit)
       .sort({ createdAt: -1 });
 
+    // Gmail-like pagination format
+    const startRecord = total === 0 ? 0 : skip + 1;
+    const endRecord = Math.min(skip + limit, total);
+
     // Prepare pagination metadata
     const pagination = {
-      total,
+      totalRecords: total,
       totalPages: Math.ceil(total / limit),
       currentPage: page,
-      limit
+      pageSize: limit,
+      startRecord,
+      endRecord
     };
 
     res.json({
@@ -72,11 +78,9 @@ const updateUser = async (req, res) => {
     const updateFields = {
       username,
       email,
-      phone, // Make sure phone is included here
+      phone,
       role: role === 'admin' || role === 'user' ? role : 'user'
     };
-    
-    console.log('Updating user with fields:', updateFields);
     
     user = await User.findByIdAndUpdate(
       req.params.id,
@@ -103,12 +107,18 @@ const deleteUser = async (req, res) => {
       return res.status(403).json({ msg: 'Access denied. Admin privileges required' });
     }
     
-    // Use findByIdAndDelete instead of remove()
     await User.findByIdAndDelete(req.params.id);
-    res.json({ msg: 'User removed' });
+    
+    // Get updated total count after deletion
+    const total = await User.countDocuments();
+    
+    res.json({ 
+      msg: 'User removed',
+      totalRecords: total 
+    });
   } catch (err) {
     console.error('Error deleting user:', err.message);
-    res.status(500).json({ msg: 'Server Error' });  // Send JSON response
+    res.status(500).json({ msg: 'Server Error' });
   }
 };
 
@@ -140,9 +150,15 @@ const createUser = async (req, res) => {
     
     await user.save();
     
+    // Get updated total count after creation
+    const total = await User.countDocuments();
+    
     // Return user without password
     const userResponse = await User.findById(user._id).select('-password');
-    res.status(201).json(userResponse);
+    res.status(201).json({
+      user: userResponse,
+      totalRecords: total
+    });
   } catch (err) {
     console.error('Error creating user:', err.message);
     res.status(500).json({ msg: 'Server Error' });
