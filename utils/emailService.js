@@ -1,18 +1,19 @@
 const nodemailer = require('nodemailer');
 
-// Looking to send emails in production? Check out our Email API/SMTP product!
-var transporter = nodemailer.createTransport({
-    host: "sandbox.smtp.mailtrap.io",
-    port: 2525,
-    auth: {
-      user: "56f6e6bf90b911",
-      pass: "9adcc258e21fe5"
-    }
-  });
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: 'kedharcourseera@gmail.com',  // Replace with your Gmail email
+    pass: 'kcvp rqdb praf sjbb'  // Replace with your App Password (not your actual password)
+  },
+  tls: {
+    rejectUnauthorized: false // ✅ Allows self-signed certificates
+  }
+});
 
 const sendResetEmail = async (email, otp) => {
   const mailOptions = {
-    from: process.env.EMAIL_FROM,
+    from: 'youremail@gmail.com',  // Must match the authenticated Gmail user
     to: email,
     subject: 'Password Reset Code',
     html: `
