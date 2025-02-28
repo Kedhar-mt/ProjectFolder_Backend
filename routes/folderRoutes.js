@@ -30,13 +30,13 @@ const upload = multer({
     storage: storage,
     fileFilter: fileFilter,
     limits: {
-        fileSize: 5 * 1024 * 1024 // 5MB limit
+        fileSize: 80 * 1024 * 1024 // 5MB limit
     }
 });
 
 // Routes
 router.post("/create", verifyToken, verifyAdmin, folderController.createFolder);
-router.post("/upload/:folderId", verifyToken, verifyAdmin, upload.array("images", 10), folderController.uploadImages);
+router.post("/upload/:folderId", verifyToken, verifyAdmin, upload.array("images", 50), folderController.uploadImages);
 router.post("/bulk-upload", verifyToken, verifyAdmin, upload.array("images", 50), folderController.bulkUpload);
 router.post("/users/upload", folderController.uploadUsers);
 router.get("/", verifyToken, folderController.getFolders);
