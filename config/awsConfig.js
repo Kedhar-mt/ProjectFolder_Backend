@@ -7,7 +7,7 @@ AWS.config.update({
   region: process.env.AWS_REGION,
 });
 
-const s3 = new AWS.S3();
+const s3 = new AWS.S3({httpOptions: { timeout: 120000 },});
 const bucketName = process.env.AWS_BUCKET_NAME;
 
 module.exports = { s3, bucketName };
