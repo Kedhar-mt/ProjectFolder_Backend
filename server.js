@@ -23,10 +23,6 @@ app.use("/uploads", express.static("uploads"));
 // Initialize token cleanup job
  setupTokenCleanupJob();
 
-// // Connect to MongoDB
-// mongoose.connect(process.env.MONGO_URI)
-//     .then(() => console.log("✅ MongoDB Connected"))
-//     .catch(err => console.log("❌ MongoDB Connection Error:", err));
 const mongoURI = process.env.MONGO_URI;
 mongoose.connect(mongoURI, {
   useNewUrlParser: true,
@@ -54,4 +50,5 @@ app.get('/test-email', async (req, res) => {
 
 // Start server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+const server = app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+server.timeout=120000;
