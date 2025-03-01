@@ -14,23 +14,31 @@ dotenv.config();
 // Initialize Express app
 const app = express();
 
-// CORS Middleware
+// Allowed Origins List
 const allowedOrigins = [
     "http://localhost:5173",
     "http://localhost:3000",
     "https://folderly2.vercel.app"
 ];
 
-app.use(cors({
-    origin: allowedOrigins,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    credentials: true, // Allows cookies/session headers
-}));
+// CORS Middleware (Dynamically Set Origin)
+app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (allowedOrigins.includes(origin)) {
+        res.setHeader("Access-Control-Allow-Origin", origin);
+    }
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.header("Access-Control-Allow-Credentials", "true");
 
-// Explicitly handle preflight requests
-app.options("*", cors());
+    // Handle preflight requests
+    if (req.method === "OPTIONS") {
+        return res.sendStatus(204);
+    }
 
-// Middleware
+    next();
+});
+
 app.use(express.json());
 app.use("/uploads", express.static("uploads"));
 
@@ -47,24 +55,9 @@ mongoose.connect(mongoURI, {
 .catch((err) => console.error(`❌ MongoDB connection error: ${err.message}`));
 
 // Debugging MongoDB connection
-mongoose.connection.on("connected", () => {
-    console.log("✅ MongoDB connection established successfully.");
-});
-mongoose.connection.on("error", (err) => {
-    console.error("❌ MongoDB connection error:", err);
-});
-mongoose.connection.on("disconnected", () => {
-    console.log("⚠️ MongoDB disconnected. Reconnecting...");
-});
-
-// Global CORS Headers (Backup)
-app.use((req, res, next) => {
-    res.header("Access-Control-Allow-Origin", allowedOrigins.join(","));
-    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.header("Access-Control-Allow-Credentials", "true");
-    next();
-});
+mongoose.connection.on("connected", () => console.log("✅ MongoDB connection established."));
+mongoose.connection.on("error", (err) => console.error("❌ MongoDB connection error:", err));
+mongoose.connection.on("disconnected", () => console.log("⚠️ MongoDB disconnected. Reconnecting..."));
 
 // Routes
 app.use("/api/auth", authRoutes);
