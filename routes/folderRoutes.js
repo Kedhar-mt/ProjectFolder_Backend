@@ -45,69 +45,39 @@ router.put("/:folderId", verifyToken, verifyAdmin, folderController.updateFolder
 router.put("/:folderId/image/:imageId", verifyToken, verifyAdmin, folderController.updateImageName);
 router.delete("/:folderId/image", verifyToken, verifyAdmin, folderController.deleteImage);
 router.delete("/:folderId", verifyToken, verifyAdmin, folderController.deleteFolder);
-router.post('/users/check', async (req, res) => {
-  try {
-    const users = req.body;
-    const existingUsers = [];
-    
-    for (const userData of users) {
-      const existing = await User.findOne({ 
-        $or: [
-          { email: userData.email },
-          { username: userData.username }
-        ]
-      });
-      
-      if (existing) {
-        existingUsers.push({
-          email: userData.email,
-          username: userData.username
-        });
-      }
-    }
-    
-    return res.status(200).json({ existingUsers });
-  } catch (error) {
-    console.error('Error checking users:', error);
-    return res.status(500).json({ message: 'Server error' });
-  }
-});
-// On the backend
 router.post('/users/upload', async (req, res) => {
   try {
-    const { users, skipExisting } = req.body;
+    const users = Array.isArray(req.body) ? req.body : [req.body];
     let addedCount = 0;
     let skippedCount = 0;
     
     for (const userData of users) {
-      // Check if user already exists by email or username
-      const existingUser = await User.findOne({ 
-        $or: [
-          { email: userData.email },
-          { username: userData.username }
-        ]
-      });
-      
-      if (existingUser) {
-        // Skip this user if the skipExisting flag is true
-        if (skipExisting) {
+      try {
+        const existingUser = await User.findOne({ 
+          $or: [
+            { email: userData.email },
+            { username: userData.username }
+          ]
+        });
+        
+        if (existingUser) {
           skippedCount++;
           continue;
+        }
+        
+        const newUser = new User(userData);
+        await newUser.save();
+        addedCount++;
+      } catch (error) {
+        // If this is a duplicate key error, just skip this user
+        if (error.code === 11000) {
+          skippedCount++;
         } else {
-          // Return error if we're not skipping existing users
-          return res.status(400).json({ 
-            message: `User with email ${userData.email} or username ${userData.username} already exists` 
-          });
+          throw error;
         }
       }
-      
-      // Create new user since they don't exist
-      const newUser = new User(userData);
-      await newUser.save();
-      addedCount++;
     }
     
-    // Return success with counts
     return res.status(200).json({ 
       message: 'Users registration completed', 
       addedCount,
