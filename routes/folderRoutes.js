@@ -45,49 +45,6 @@ router.put("/:folderId", verifyToken, verifyAdmin, folderController.updateFolder
 router.put("/:folderId/image/:imageId", verifyToken, verifyAdmin, folderController.updateImageName);
 router.delete("/:folderId/image", verifyToken, verifyAdmin, folderController.deleteImage);
 router.delete("/:folderId", verifyToken, verifyAdmin, folderController.deleteFolder);
-router.post('/users/upload', async (req, res) => {
-  try {
-    const users = Array.isArray(req.body) ? req.body : [req.body];
-    let addedCount = 0;
-    let skippedCount = 0;
-    
-    for (const userData of users) {
-      try {
-        const existingUser = await User.findOne({ 
-          $or: [
-            { email: userData.email },
-            { username: userData.username }
-          ]
-        });
-        
-        if (existingUser) {
-          skippedCount++;
-          continue;
-        }
-        
-        const newUser = new User(userData);
-        await newUser.save();
-        addedCount++;
-      } catch (error) {
-        // If this is a duplicate key error, just skip this user
-        if (error.code === 11000) {
-          skippedCount++;
-        } else {
-          throw error;
-        }
-      }
-    }
-    
-    return res.status(200).json({ 
-      message: 'Users registration completed', 
-      addedCount,
-      skippedCount
-    });
-  } catch (error) {
-    console.error('Error uploading users:', error);
-    return res.status(500).json({ message: 'Server error' });
-  }
-});
 
 // Error handling middleware
 router.use((error, req, res, next) => {
