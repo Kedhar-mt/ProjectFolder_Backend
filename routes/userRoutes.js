@@ -5,7 +5,8 @@ const {
   getUserById, 
   updateUser, 
   deleteUser,
-  createUser
+  createUser,
+  deleteAllUsers
 } = require('../controllers/userController');
 const { verifyToken, verifyAdmin } = require('../middleware/authMiddleware');
 
@@ -15,5 +16,6 @@ router.get('/:id', verifyToken, getUserById); // Authenticated users can view a 
 router.put('/:id', verifyToken, updateUser); // Users can update their own data, admin can update anyone
 router.delete('/:id', verifyToken, verifyAdmin, deleteUser); // Admin-only access
 router.post('/', verifyToken, verifyAdmin, createUser);
+router.delete('/', verifyToken, verifyAdmin, deleteAllUsers); // Admin-only access
 
 module.exports = router;
