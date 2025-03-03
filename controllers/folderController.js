@@ -358,31 +358,84 @@ const folderController = {
     },
 
     uploadUsers: async (req, res) => {
+        // Declare results outside the try block
+        let results = {
+          successful: 0,
+          skipped: 0,
+          skippedUsers: []
+        };
+        
         try {
-            const users = req.body;
-
-            const usersToInsert = await Promise.all(users.map(async (user) => {
-                if (!user.username || !user.phone) {
-                    throw new Error("Validation failed: username and phone are required.");
-                }
-
-                return {
-                    username: user.username,
-                    name: user.name,
-                    phone: user.phone,
-                    email: user.email,
-                    password: await bcrypt.hash(user.password, 10),
-                };
-            }));
-
-            await User.insertMany(usersToInsert);
-
-            res.status(201).json({ message: "Users uploaded successfully!" });
+          const users = req.body;
+          console.log(`Received batch of ${users.length} users`);
+          
+          // Process users one by one
+          for (const user of users) {
+            // Validate required fields
+            if (!user.username || !user.phone) {
+              results.skipped++;
+              results.skippedUsers.push({
+                username: user.username || "N/A",
+                reason: "Missing required fields (username or phone)"
+              });
+              continue;
+            }
+            
+            // Check if user already exists (by username, email, or phone)
+            const existingUser = await User.findOne({
+              $or: [
+                { username: user.username },
+                ...(user.email && user.email.trim() !== "" ? [{ email: user.email }] : []),
+                { phone: user.phone } // Ensure phone is unique
+              ]
+            });
+            
+            if (existingUser) {
+              results.skipped++;
+              results.skippedUsers.push({
+                username: user.username,
+                reason: "User already exists"
+              });
+              continue;
+            }
+            
+            // Create new user
+            const hashedPassword = await bcrypt.hash(user.password, 10);
+            const newUser = new User({
+              username: user.username,
+              name: user.name || user.username,
+              phone: user.phone,
+              email: user.email || null,
+              password: hashedPassword,
+              role: user.role || "user"
+            });
+            
+            await newUser.save();
+            results.successful++;
+          }
+          
+          // Customize response message based on results
+          let responseMessage = "";
+          if (results.successful > 0 && results.skipped > 0) {
+            responseMessage = `Successfully added ${results.successful} new users. Skipped ${results.skipped} existing users.`;
+          } else if (results.successful > 0) {
+            responseMessage = `Successfully added all ${results.successful} users.`;
+          } else if (results.skipped > 0) {
+            responseMessage = `No new users added. All ${results.skipped} users already exist in the system.`;
+          }
+          
+          res.status(201).json({
+            message: responseMessage,
+            results: results
+          });
         } catch (error) {
-            console.error("Error uploading users:", error);
-            res.status(500).json({ message: "Server error: " + error.message });
+          console.error("Error uploading users:", error);
+          res.status(500).json({ 
+            results: results, 
+            message: "Server error: " + error.message 
+          });
         }
-    }
+      }
 };
 
 module.exports = folderController;
