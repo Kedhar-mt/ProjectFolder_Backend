@@ -45,6 +45,33 @@ router.put("/:folderId", verifyToken, verifyAdmin, folderController.updateFolder
 router.put("/:folderId/image/:imageId", verifyToken, verifyAdmin, folderController.updateImageName);
 router.delete("/:folderId/image", verifyToken, verifyAdmin, folderController.deleteImage);
 router.delete("/:folderId", verifyToken, verifyAdmin, folderController.deleteFolder);
+router.post('/users/check', async (req, res) => {
+  try {
+    const users = req.body;
+    const existingUsers = [];
+    
+    for (const userData of users) {
+      const existing = await User.findOne({ 
+        $or: [
+          { email: userData.email },
+          { username: userData.username }
+        ]
+      });
+      
+      if (existing) {
+        existingUsers.push({
+          email: userData.email,
+          username: userData.username
+        });
+      }
+    }
+    
+    return res.status(200).json({ existingUsers });
+  } catch (error) {
+    console.error('Error checking users:', error);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
 // On the backend
 router.post('/users/upload', async (req, res) => {
   try {
