@@ -133,7 +133,7 @@ const folderController = {
         }
     },
     
-    bulkUpload: async (req, res) => {
+   bulkUpload: async (req, res) => {
         try {
             const folderIds = JSON.parse(req.body.folderIds);
             
@@ -141,55 +141,101 @@ const folderController = {
                 req.files.forEach(file => fs.unlinkSync(file.path));
                 return res.status(400).json({ message: "No folders selected" });
             }
-
+    
             if (!req.files || req.files.length === 0) {
                 return res.status(400).json({ message: "No images uploaded" });
             }
-
-            const processedImages = await Promise.all(req.files.map(async (file) => {
-                const outputFilename = `resized-${Date.now()}-${file.filename}.jpg`;
-                const outputFilePath = path.join(uploadDir, outputFilename);
-                
-                await sharp(file.path)
-                    .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
-                    .toFormat('jpeg', { quality: 80 })
-                    .toFile(outputFilePath);
-
-                // Upload to S3
-                const fileContent = fs.readFileSync(outputFilePath);
-                const params = {
-                    Bucket: bucketName,
-                    Key: `uploads/${outputFilename}`,
-                    Body: fileContent,
-                    ContentType: 'image/jpeg',
-                    ACL: 'public-read'
-                };
-
-                const s3Response = await s3.upload(params).promise();
-                
-                // Clean up local files
-                fs.unlinkSync(file.path);
-                fs.unlinkSync(outputFilePath);
-
-                return {
-                    name: file.originalname,
-                    path: s3Response.Location
-                };
-            }));
-
-            await Promise.all(folderIds.map(async (folderId) => {
-                const folder = await Folder.findById(folderId);
-                if (folder) {
-                    folder.images.push(...processedImages);
-                    await folder.save();
+    
+            const totalImages = req.files.length;
+            const batchSize = totalImages <= 50 ? 10 : totalImages <= 200 ? 20 : 50; // Dynamic batch sizing
+            const imageBatches = [];
+    
+            for (let i = 0; i < totalImages; i += batchSize) {
+                imageBatches.push(req.files.slice(i, i + batchSize));
+            }
+    
+            console.log(`Processing ${totalImages} images in ${imageBatches.length} batches of ~${batchSize} each`);
+    
+            let overallResults = {
+                successful: 0,
+                failed: 0,
+                failedImages: []
+            };
+    
+            const uploadBatch = async (batch, batchIndex) => {
+                try {
+                    const processedImages = await Promise.all(batch.map(async (file) => {
+                        const outputFilename = `resized-${Date.now()}-${file.filename}.jpg`;
+                        const outputFilePath = path.join(uploadDir, outputFilename);
+    
+                        await sharp(file.path)
+                            .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
+                            .toFormat('jpeg', { quality: 80 })
+                            .toFile(outputFilePath);
+    
+                        // Upload to S3
+                        const fileContent = fs.readFileSync(outputFilePath);
+                        const params = {
+                            Bucket: bucketName,
+                            Key: `uploads/${outputFilename}`,
+                            Body: fileContent,
+                            ContentType: 'image/jpeg',
+                            ACL: 'public-read'
+                        };
+    
+                        const s3Response = await s3.upload(params).promise();
+    
+                        // Clean up local files
+                        fs.unlinkSync(file.path);
+                        fs.unlinkSync(outputFilePath);
+    
+                        return {
+                            name: file.originalname,
+                            path: s3Response.Location
+                        };
+                    }));
+    
+                    // Assign images to folders
+                    await Promise.all(folderIds.map(async (folderId) => {
+                        const folder = await Folder.findById(folderId);
+                        if (folder) {
+                            folder.images.push(...processedImages);
+                            await folder.save();
+                        }
+                    }));
+    
+                    console.log(`Batch ${batchIndex + 1} uploaded successfully`);
+                    overallResults.successful += batch.length;
+    
+                } catch (error) {
+                    console.error(`Error processing batch ${batchIndex + 1}:`, error);
+                    overallResults.failed += batch.length;
+                    overallResults.failedImages.push(...batch.map(f => f.originalname));
                 }
-            }));
-
-            res.json({
-                success: true,
-                message: "Images uploaded and processed successfully",
-                affectedFolders: folderIds.length
+            };
+    
+            // Execute batch uploads in parallel
+            const batchUploadResults = await Promise.allSettled(imageBatches.map(uploadBatch));
+    
+            // Analyze batch upload results
+            batchUploadResults.forEach((result, index) => {
+                if (result.status === "rejected") {
+                    console.error(`Batch ${index + 1} failed:`, result.reason);
+                    overallResults.failed += imageBatches[index].length;
+                }
             });
+    
+            let responseMessage = `Uploaded ${overallResults.successful} images successfully.`;
+            if (overallResults.failed > 0) {
+                responseMessage += ` Failed to upload ${overallResults.failed} images.`;
+            }
+    
+            res.json({
+                success: overallResults.failed === 0,
+                message: responseMessage,
+                failedImages: overallResults.failedImages.length > 0 ? overallResults.failedImages : undefined
+            });
+    
         } catch (err) {
             req.files?.forEach(file => {
                 if (fs.existsSync(file.path)) {
