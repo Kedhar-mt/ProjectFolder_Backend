@@ -74,7 +74,9 @@ exports.register = async (req, res) => {
         email, 
         phone,
         password: hashedPassword,
-        role: validRole 
+        role: validRole,
+        isLoggedIn: false,  // Initialize as not logged in
+        deviceInfo: null    // Initialize device info as null
       });
       await newUser.save();
   
@@ -110,6 +112,14 @@ exports.login = async (req, res) => {
     if (!isMatch) {
       console.error("Password mismatch");
       return res.status(400).json({ msg: "Invalid Credentials" });
+    }
+
+    // Check if user is already logged in
+    if (user.isLoggedIn) {
+      return res.status(403).json({ 
+        msg: "Account already in use. You can only be logged in on one device at a time.",
+        alreadyLoggedIn: true 
+      });
     }
 
     // Generate JWT tokens
@@ -149,6 +159,16 @@ exports.login = async (req, res) => {
     await newToken.save();
     console.log(`Tokens stored in database for user: ${user._id}`);
 
+    // Update user's login status and device info
+    await User.findByIdAndUpdate(user._id, { 
+      isLoggedIn: true,
+      deviceInfo: {
+        userAgent,
+        ip,
+        lastLogin: new Date()
+      }
+    });
+
     res.json({ 
       accessToken, 
       refreshToken,
@@ -176,6 +196,12 @@ exports.logout = async (req, res) => {
     // Delete all token documents for this user
     const result = await Token.deleteMany({ userId });
     
+    // Update user's login status
+    await User.findByIdAndUpdate(userId, { 
+      isLoggedIn: false,
+      deviceInfo: null
+    });
+
     if (result.deletedCount > 0) {
       console.log(`Successfully deleted ${result.deletedCount} tokens for user ${userId}`);
       res.json({ 
@@ -196,6 +222,7 @@ exports.logout = async (req, res) => {
     res.status(500).json({ msg: "Server Error" });
   }
 };
+
 exports.resetPassword = async (req, res) => {
   try {
     const { email, otp, newPassword } = req.body;
@@ -227,25 +254,18 @@ exports.resetPassword = async (req, res) => {
       return res.status(400).json({ msg: "Invalid reset code" });
     }
 
-    // Decrypt the encrypted password from frontend
-    // const bytes = CryptoJS.AES.decrypt(newPassword, SECRET_KEY);
-    // const decryptedPassword = bytes.toString(CryptoJS.enc.Utf8);
-    const decryptedPassword = newPassword;
-
-    if (!decryptedPassword) {
-      return res.status(400).json({ msg: "Invalid password format" });
-    }
-
-    // Hash the decrypted password before storing
+    // Hash the new password before storing
     const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(decryptedPassword, salt);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
 
     // Update user with new hashed password and reset OTP fields
     await User.findByIdAndUpdate(user._id, {
       $set: {
         password: hashedPassword,
         resetPasswordOTP: null,
-        resetPasswordExpire: null
+        resetPasswordExpire: null,
+        isLoggedIn: false,         // Force logout on password reset
+        deviceInfo: null           // Clear device info
       }
     }, { new: true });
 
@@ -291,7 +311,6 @@ exports.forgotPassword = async (req, res) => {
 };
 
 exports.refreshToken = async (req, res) => {
-
   const { refreshToken } = req.body;
 
   if (!refreshToken) {
@@ -307,6 +326,14 @@ exports.refreshToken = async (req, res) => {
 
     if (!user) {
       return res.status(400).json({ msg: "User not found" });
+    }
+
+    // Verify user is still logged in
+    if (!user.isLoggedIn) {
+      return res.status(401).json({ 
+        msg: "Session expired. Please log in again.",
+        sessionExpired: true
+      });
     }
 
     // Find the token in the database
@@ -330,6 +357,13 @@ exports.refreshToken = async (req, res) => {
     
     await tokenDoc.save();
 
+    // Update user's last activity time
+    if (user.deviceInfo) {
+      await User.findByIdAndUpdate(user._id, {
+        'deviceInfo.lastActivity': new Date()
+      });
+    }
+
     res.json({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken });
   } catch (error) {
     console.error("Error refreshing token:", error);
@@ -343,12 +377,60 @@ exports.refreshToken = async (req, res) => {
   }
 };
 
+// Force logout a user from all devices (admin function or self-service)
+exports.forceLogout = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Check if the requesting user has permission
+    if (req.user.role !== 'admin' && req.user.userId !== userId) {
+      return res.status(403).json({ msg: "Unauthorized" });
+    }
+    
+    // Update user's login status
+    await User.findByIdAndUpdate(userId, { 
+      isLoggedIn: false,
+      deviceInfo: null
+    });
+    
+    // Delete all token documents for this user
+    const result = await Token.deleteMany({ userId });
+    
+    res.json({ 
+      success: true, 
+      msg: "User has been logged out from all devices", 
+      tokensRemoved: result.deletedCount 
+    });
+  } catch (err) {
+    console.error("Force logout error:", err);
+    res.status(500).json({ msg: "Server Error" });
+  }
+};
+
 // New method to clean up expired tokens (can be called by a cron job)
 exports.cleanupExpiredTokens = async () => {
   try {
     const result = await Token.deleteMany({
       expiresAt: { $lt: new Date() }
     });
+    
+    // Also update user status for any users without valid tokens
+    const usersWithoutTokens = await User.find({ isLoggedIn: true });
+    
+    for (const user of usersWithoutTokens) {
+      const hasValidToken = await Token.findOne({ 
+        userId: user._id,
+        expiresAt: { $gt: new Date() }
+      });
+      
+      if (!hasValidToken) {
+        await User.findByIdAndUpdate(user._id, {
+          isLoggedIn: false,
+          deviceInfo: null
+        });
+        console.log(`Updated login status for user ${user._id} with no valid tokens`);
+      }
+    }
     
     console.log(`Cleaned up ${result.deletedCount} expired tokens`);
     return result.deletedCount;
