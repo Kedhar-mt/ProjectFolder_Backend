@@ -2,6 +2,25 @@ const mongoose = require('mongoose');
 const validator = require('validator');
 const bcrypt = require('bcryptjs');
 
+const deviceInfoSchema = new mongoose.Schema({
+  userAgent: {
+    type: String,
+    trim: true
+  },
+  ip: {
+    type: String,
+    trim: true
+  },
+  lastLogin: {
+    type: Date,
+    default: Date.now
+  },
+  lastActivity: {
+    type: Date,
+    default: Date.now
+  }
+}, { _id: false });
+
 const UserSchema = new mongoose.Schema({
   username: {
     type: String,
@@ -28,10 +47,11 @@ const UserSchema = new mongoose.Schema({
     minlength: 8,
     set: value => value.trim()
   },
-  phone: { 
-    type: String, 
-    required: true, 
-    unique: true },
+  phone: {
+    type: String,
+    required: true,
+    unique: true 
+  },
   role: {
     type: String,
     enum: ['user', 'admin'],
@@ -48,15 +68,15 @@ const UserSchema = new mongoose.Schema({
   refreshToken: {
     type: String,
     set: value => value === null || value === undefined ? null : value.trim()
+  },
+  isLoggedIn: {
+    type: Boolean,
+    default: false
+  },
+  deviceInfo: {
+    type: deviceInfoSchema,
+    default: null
   }
 }, { timestamps: true });
-
-// UserSchema.pre('save', async function(next) {
-//   if (this.isModified('password')) {
-//     const salt = await bcrypt.genSalt(10);
-//     this.password = await bcrypt.hash(this.password, salt);
-//   }
-//   next();
-// });
 
 module.exports = mongoose.model('User', UserSchema);
